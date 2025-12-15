@@ -5,10 +5,16 @@ Handles queries against the knowledge base with context-aware responses.
 
 from typing import List, Dict, Optional
 
-from rag.index import vector_index
-from services.openai_client import openai_client
 from utils.logging import logger
-from config import RAG_TOP_K
+from config import RAG_TOP_K, API_PROVIDER
+
+# Динамический импорт в зависимости от провайдера
+if API_PROVIDER == "yandex":
+    from rag.index_simple import simple_index as knowledge_index
+    from services.yandex_client import yandex_gpt_client as ai_client
+else:
+    from rag.index import vector_index as knowledge_index
+    from services.openai_client import openai_client as ai_client
 
 
 async def query_knowledge_base(
@@ -27,15 +33,27 @@ async def query_knowledge_base(
     """
     try:
         # Search for relevant documents
-        logger.debug(f"Searching knowledge base for: {query}")
-        results = vector_index.similarity_search_with_score(query, k=RAG_TOP_K)
+        logger.debug(f"Searching knowledge base for: {query} (provider: {API_PROVIDER})")
         
-        if not results:
-            logger.warning("No relevant documents found, using fallback")
-            return await _fallback_response(query, conversation_history)
-        
-        # Prepare context from retrieved documents
-        context = _prepare_context(results)
+        if API_PROVIDER == "yandex":
+            # Keyword-based search for Yandex
+            relevant_chunks = knowledge_index.keyword_retrieve(query, top_k=RAG_TOP_K)
+            
+            if not relevant_chunks:
+                logger.warning("No relevant documents found, using fallback")
+                return await _fallback_response(query, conversation_history)
+            
+            context = "\n\n".join(relevant_chunks)
+        else:
+            # Vector-based search for OpenAI
+            results = knowledge_index.similarity_search_with_score(query, k=RAG_TOP_K)
+            
+            if not results:
+                logger.warning("No relevant documents found, using fallback")
+                return await _fallback_response(query, conversation_history)
+            
+            # Prepare context from retrieved documents
+            context = _prepare_context(results)
         
         # Generate response with context
         response = await _generate_rag_response(
@@ -92,19 +110,27 @@ async def _generate_rag_response(
         Generated response
     """
     # Build prompt with context
-    system_prompt = """Ты - личный ассистент с доступом к базе знаний.
+    system_prompt = """Ты - технический консультант-эксперт по люкам и дождеприемникам компании "ЛИТЛИДЕР".
+
+ТВОЯ РОЛЬ:
+- Помогаешь инженерам, проектировщикам, прорабам и снабженцам подбирать продукцию
+- Расшифровываешь технические маркировки типа ТМ(Д400)-2-7-9-60
+- Предоставляешь точные технические характеристики, веса, размеры
+- Объясняешь различия между типами продукции (плавающие/обычные люки, классы нагрузки)
+- Помогаешь с подбором оборудования для конкретных условий эксплуатации
 
 ВАЖНЫЕ ПРАВИЛА:
-1. Отвечай на основе предоставленного контекста
-2. Если контекст содержит ответ - используй его
-3. Если контекст не содержит ответа - честно скажи об этом
-4. Всегда указывай источники информации
-5. Отвечай на русском языке четко и структурированно
+1. Используй ТОЛЬКО информацию из технического каталога ниже
+2. Для технических характеристик цитируй точные данные (вес, размеры, маркировку)
+3. Если в каталоге нет информации - честно скажи об этом
+4. Всегда указывай артикул/маркировку продукции
+5. Объясняй технические термины понятным языком
+6. Структурируй ответы: характеристики, применение, преимущества
 
-КОНТЕКСТ ИЗ БАЗЫ ЗНАНИЙ:
+КОНТЕКСТ ИЗ ТЕХНИЧЕСКОГО КАТАЛОГА:
 {context}
 
-Используй этот контекст для ответа на вопрос пользователя."""
+Используй этот контекст для точного и профессионального ответа."""
     
     # Prepare messages
     messages = [
@@ -127,7 +153,7 @@ async def _generate_rag_response(
     })
     
     # Generate response
-    response = await openai_client.generate_text_response(messages)
+    response = await ai_client.generate_text_response(messages)
     
     return response
 
@@ -150,11 +176,11 @@ async def _fallback_response(
     
     system_message = {
         "role": "system",
-        "content": """Ты - личный ассистент. 
+        "content": """Ты - технический консультант по люкам и дождеприемникам компании "ЛИТЛИДЕР". 
         
-База знаний пока пуста или не содержит информации по этому вопросу.
-Ответь на основе своих общих знаний, но предупреди пользователя, 
-что это не основано на специфической базе знаний."""
+База знаний не содержит информации по этому вопросу.
+Если это вопрос о продукции - извинись и попроси пользователя загрузить технический каталог.
+Если это общий вопрос - можешь ответить, но предупреди, что ответ не из каталога."""
     }
     
     messages = [system_message]
@@ -167,9 +193,9 @@ async def _fallback_response(
         "content": query
     })
     
-    response = await openai_client.generate_text_response(messages)
+    response = await ai_client.generate_text_response(messages)
     
-    return f"⚠️ База знаний не содержит информации по этому вопросу.\n\n{response}"
+    return f"⚠️ Технический каталог не содержит информации по этому вопросу.\n\n{response}\n\n💡 Убедитесь, что файл Litlider_Katalog_VCHSHG_2025.pdf загружен в систему."
 
 
 async def add_document_to_knowledge_base(file_path: str) -> dict:
@@ -191,7 +217,17 @@ async def add_document_to_knowledge_base(file_path: str) -> dict:
         documents = document_loader.load_document(file_path)
         
         # Add to index
-        vector_index.add_documents(documents)
+        # Note: This function currently only works with vector index
+        # For Yandex, re-index the entire directory instead
+        if API_PROVIDER == "yandex":
+            logger.warning("For Yandex, please re-index the entire directory instead of adding single documents")
+            return {
+                "success": False,
+                "error": "Use directory re-indexing for Yandex",
+                "message": "Для Yandex переиндексируйте всю директорию"
+            }
+        
+        knowledge_index.add_documents(documents)
         
         logger.info(f"Added {file_path.name} to knowledge base")
         
@@ -218,5 +254,5 @@ def get_knowledge_base_stats() -> dict:
     Returns:
         Dictionary with statistics
     """
-    return vector_index.get_stats()
+    return knowledge_index.get_stats()
 

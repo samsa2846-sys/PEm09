@@ -37,8 +37,12 @@ ENV/
 
 # Data
 data/embeddings.db
+data/chroma_db/
+data/generated_images/
+data/simple_index/
 data/documents/*
 !data/documents/.gitkeep
+!data/documents/README_UPLOAD_CATALOG.txt
 *.ogg
 *.wav
 *.mp3
@@ -49,4 +53,9 @@ data/documents/*
 # OS
 .DS_Store
 Thumbs.db
+
+# Tests and Examples (not needed in production)
+tests/
+examples/
+docs/
 

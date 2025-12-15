@@ -6,14 +6,25 @@ Routes different types of requests to appropriate handlers.
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from services.openai_client import openai_client
-from services.stt import transcribe_voice_message
-from services.tts import generate_voice_response
-from services.vision import analyze_image
-from services.image_generation import detect_image_generation_intent, generate_image
 from utils.logging import logger
 from utils.helpers import user_sessions
-from config import BotMode
+from config import BotMode, API_PROVIDER
+
+# Условные импорты в зависимости от провайдера
+if API_PROVIDER == "yandex":
+    from services.yandex_client import yandex_gpt_client as ai_client
+    from services.stt import transcribe_voice_message
+    from services.tts import generate_voice_response
+    from services.vision import analyze_image
+    # Для Yandex генерация изображений пока не поддерживается напрямую
+    detect_image_generation_intent = None
+    generate_image = None
+else:
+    from services.openai_client import openai_client as ai_client
+    from services.stt import transcribe_voice_message
+    from services.tts import generate_voice_response
+    from services.vision import analyze_image
+    from services.image_generation import detect_image_generation_intent, generate_image
 
 
 async def route_text_request(
@@ -40,10 +51,12 @@ async def route_text_request(
         # Get conversation history
         history = user_sessions.get_history(user_id)
         
-        # Check if user wants to generate an image
-        image_intent = await detect_image_generation_intent(text, history)
+        # Check if user wants to generate an image (only for OpenAI)
+        image_intent = None
+        if detect_image_generation_intent is not None:
+            image_intent = await detect_image_generation_intent(text, history)
         
-        if image_intent.get('needs_generation') and image_intent.get('confidence', 0) > 0.5:
+        if image_intent and image_intent.get('needs_generation') and image_intent.get('confidence', 0) > 0.5:
             # User wants to generate an image
             logger.info(f"Image generation request detected for user {user_id}")
             return await route_image_generation_request(
@@ -63,7 +76,7 @@ async def route_text_request(
         else:
             # Standard GPT response
             messages = history + [{"role": "user", "content": text}]
-            response_text = await openai_client.generate_text_response(messages)
+            response_text = await ai_client.generate_text_response(messages)
         
         # Add assistant response to history
         user_sessions.add_message(user_id, "assistant", response_text)

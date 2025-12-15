@@ -7,8 +7,14 @@ from typing import Optional
 import base64
 from pathlib import Path
 
-from services.openai_client import openai_client
 from utils.logging import logger
+from config import API_PROVIDER
+
+# Условный импорт в зависимости от провайдера
+if API_PROVIDER == "yandex":
+    from services.yandex_client import yandex_vision_client as vision_client
+else:
+    from services.openai_client import openai_client as vision_client
 
 
 async def analyze_image(
@@ -50,11 +56,20 @@ async def analyze_image(
             Ответь на русском языке."""
         
         # Analyze image
-        logger.debug("Analyzing image with Vision API")
-        result = await openai_client.analyze_image(
-            image_url=final_url,
-            prompt=custom_prompt
-        )
+        logger.debug(f"Analyzing image with {API_PROVIDER} Vision API")
+        
+        if API_PROVIDER == "yandex":
+            # Yandex Vision использует image_path или image_url напрямую
+            result = await vision_client.analyze_image(
+                image_path=image_path,
+                image_url=image_url,
+                prompt=custom_prompt
+            )
+        else:
+            result = await vision_client.analyze_image(
+                image_url=final_url,
+                prompt=custom_prompt
+            )
         
         return result
         

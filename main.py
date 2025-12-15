@@ -24,8 +24,15 @@ async def setup_bot():
     
     # Initialize RAG index if documents exist
     try:
-        from rag.index import vector_index
-        from config import DOCUMENTS_DIR
+        from config import DOCUMENTS_DIR, API_PROVIDER
+        
+        # Выбираем индекс в зависимости от провайдера
+        if API_PROVIDER == "yandex":
+            from rag.index_simple import simple_index as rag_index
+            logger.info(f"Using simple keyword index (Yandex)")
+        else:
+            from rag.index import vector_index as rag_index
+            logger.info(f"Using vector index (OpenAI)")
         
         # Check if documents directory has files
         docs = list(DOCUMENTS_DIR.glob('*'))
@@ -33,7 +40,7 @@ async def setup_bot():
         
         if docs:
             logger.info(f"Found {len(docs)} documents, indexing...")
-            count = vector_index.index_documents_directory(force_reindex=False)
+            count = rag_index.index_documents_directory(force_reindex=False)
             logger.info(f"Indexed {count} document chunks")
         else:
             logger.info("No documents found in data/documents/")

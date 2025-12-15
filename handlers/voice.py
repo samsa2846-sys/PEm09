@@ -106,11 +106,20 @@ async def handle_voice_message(message: types.Message):
         # Process voice request
         response = await route_voice_request(user_id, voice_file_path)
         
-        # Send transcription
-        await bot.send_message(
-            message.chat.id,
-            f"🎤 **Распознано:**\n_{response['transcription']}_\n"
-        )
+        # Check for errors
+        if 'error' in response:
+            await bot.send_message(
+                message.chat.id,
+                f"❌ Ошибка при обработке голосового сообщения:\n{response.get('error', 'Неизвестная ошибка')}"
+            )
+            return
+        
+        # Send transcription if available
+        if 'transcription' in response:
+            await bot.send_message(
+                message.chat.id,
+                f"🎤 **Распознано:**\n_{response['transcription']}_\n"
+            )
         
         # Check if response contains an image
         if response.get('has_image') and response.get('image_path'):

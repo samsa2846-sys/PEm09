@@ -6,9 +6,24 @@ Handles text to voice conversion.
 from pathlib import Path
 from typing import Optional
 
-from services.openai_client import openai_client
 from utils.logging import logger
-from config import VoiceType, DEFAULT_VOICE
+from config import VoiceType, DEFAULT_VOICE, API_PROVIDER, YANDEX_TTS_VOICE
+
+# Условный импорт в зависимости от провайдера
+if API_PROVIDER == "yandex":
+    from services.yandex_client import yandex_speechkit_client as tts_client
+else:
+    from services.openai_client import openai_client as tts_client
+
+# Маппинг голосов OpenAI -> Yandex
+VOICE_MAPPING = {
+    VoiceType.ALLOY: "alena",
+    VoiceType.ECHO: "filipp",
+    VoiceType.NOVA: "jane",
+    VoiceType.FABLE: "ermil",
+    VoiceType.ONYX: "zahar",
+    VoiceType.SHIMMER: "dasha"
+}
 
 
 async def generate_voice_response(
@@ -42,7 +57,13 @@ async def generate_voice_response(
         
         # Generate speech
         logger.debug(f"Generating voice response with voice: {voice}")
-        audio_path = await openai_client.generate_speech(text, voice=voice)
+        
+        if API_PROVIDER == "yandex":
+            # Конвертируем голос OpenAI в Yandex формат
+            yandex_voice = VOICE_MAPPING.get(voice, YANDEX_TTS_VOICE)
+            audio_path = await tts_client.generate_speech(text, voice=yandex_voice)
+        else:
+            audio_path = await tts_client.generate_speech(text, voice=voice)
         
         logger.info(f"Voice response generated: {audio_path}")
         return audio_path

@@ -6,9 +6,15 @@ Handles voice message transcription.
 from pathlib import Path
 from typing import Union
 
-from services.openai_client import openai_client
 from utils.logging import logger
 from utils.helpers import convert_ogg_to_wav, cleanup_file
+from config import API_PROVIDER
+
+# Условный импорт в зависимости от провайдера
+if API_PROVIDER == "yandex":
+    from services.yandex_client import yandex_speechkit_client as stt_client
+else:
+    from services.openai_client import openai_client as stt_client
 
 
 async def transcribe_voice_message(audio_path: Union[str, Path]) -> str:
@@ -25,16 +31,21 @@ async def transcribe_voice_message(audio_path: Union[str, Path]) -> str:
     wav_path = None
     
     try:
-        # Convert OGG to WAV if needed
-        if audio_path.suffix.lower() == '.ogg':
-            logger.debug(f"Converting OGG to WAV: {audio_path}")
-            wav_path = convert_ogg_to_wav(audio_path)
-            transcription_path = wav_path
+        # Transcribe using appropriate service
+        if API_PROVIDER == "yandex":
+            # Yandex SpeechKit принимает OGG напрямую, конвертация не нужна
+            logger.debug(f"Transcribing with Yandex SpeechKit: {audio_path}")
+            text = await stt_client.transcribe_audio(audio_path)
         else:
-            transcription_path = audio_path
-        
-        # Transcribe using OpenAI Whisper
-        text = await openai_client.transcribe_audio(transcription_path)
+            # OpenAI Whisper требует WAV - конвертируем OGG в WAV
+            if audio_path.suffix.lower() == '.ogg':
+                logger.debug(f"Converting OGG to WAV: {audio_path}")
+                wav_path = convert_ogg_to_wav(audio_path)
+                transcription_path = wav_path
+            else:
+                transcription_path = audio_path
+            
+            text = await stt_client.transcribe_audio(transcription_path)
         
         logger.info(f"Transcription completed: {len(text)} characters")
         return text

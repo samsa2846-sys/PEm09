@@ -7,10 +7,15 @@ from telebot import types
 from pathlib import Path
 
 from bot import bot
-from config import DOCUMENTS_DIR
-from rag.loader import document_loader
-from rag.index import vector_index
+from config import DOCUMENTS_DIR, API_PROVIDER
 from utils.logging import logger
+
+# Условные импорты в зависимости от провайдера
+if API_PROVIDER == "yandex":
+    from rag.index_simple import simple_index as rag_index
+else:
+    from rag.index import vector_index as rag_index
+    from rag.loader import document_loader
 
 
 # This handler is included but currently the main document handler 
@@ -66,19 +71,24 @@ async def process_document_upload(message: types.Message, document: types.Docume
         await bot.send_message(message.chat.id, "📄 Индексирую документ...")
         
         # Load and chunk document
-        chunks = document_loader.load_document(file_path)
+        if API_PROVIDER == "yandex":
+            # Для Yandex просто переиндексируем всю директорию
+            count = rag_index.index_documents_directory(force_reindex=True)
+            chunks_count = count
+        else:
+            # Для OpenAI используем loader
+            chunks = document_loader.load_document(file_path)
+            rag_index.add_documents(chunks)
+            chunks_count = len(chunks)
         
-        # Add to vector store
-        vector_index.add_documents(chunks)
-        
-        logger.info(f"Indexed {len(chunks)} chunks from {document.file_name}")
+        logger.info(f"Indexed {chunks_count} chunks from {document.file_name}")
         
         # Success message
         await bot.send_message(
             message.chat.id,
             f"✅ Документ успешно загружен!\n\n"
             f"📄 Файл: {document.file_name}\n"
-            f"📊 Фрагментов: {len(chunks)}\n"
+            f"📊 Фрагментов: {chunks_count}\n"
             f"💾 Размер: {document.file_size / 1024:.1f} KB\n\n"
             f"Теперь вы можете задавать вопросы по этому документу:\n"
             f"/mode rag"
